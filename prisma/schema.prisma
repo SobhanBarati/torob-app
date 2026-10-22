@@ -1,0 +1,61 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  connection_limit = 50
+  pool_timeout     = 30
+}
+
+model Product {
+  id            String   @id @map("product_id")
+  persianTitle  String   @map("persian_title")
+  brandName     String?  @map("brand_name")
+  categoryName  String?  @map("category_name")
+  model         String?
+  imageUrls     Json?    @map("image_urls")
+  specs         Json?
+
+  offers        Offer[]
+
+  @@map("products")
+}
+
+model Shop {
+  id                   String   @id @map("shop_id")
+  name                 String?
+  address              String?
+  categoryNames        Json?    @map("category_names")
+  contacts             Json?
+  instagram            String?
+  lat                  Float?
+  lon                  Float?
+  locationLabel        String?  @map("location_label")
+  paymentOptions       Json?    @map("payment_options")
+  supportsFastDelivery Boolean? @map("supports_fast_delivery")
+  websiteUrl           String?  @map("website_url")
+  weeklyHours          Json?    @map("weekly_hours")
+
+  offers               Offer[]
+
+  @@map("shops")
+}
+
+model Offer {
+  id                 String    @id @map("offer_id")
+  priceToman         Int       @map("price_toman")
+  description        String?
+  sellerTitle        String?   @map("seller_title")
+  warranty           Json?     
+  lastPriceChangedAt DateTime? @map("last_price_changed_at")
+
+  productId          String    @map("product_id")
+  shopId             String    @map("shop_id")
+
+  product            Product   @relation(fields: [productId], references: [id])
+  shop               Shop      @relation(fields: [shopId], references: [id])
+
+  @@map("offers")
+}
