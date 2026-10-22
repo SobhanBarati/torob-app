@@ -3,23 +3,98 @@ const csv = require('csv-parser');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
-const BATCH_SIZE = 1000; // سایز رو بزرگتر کردیم چون دیگه خطا نداریم
+const BATCH_SIZE = 500;
 
 const parseJsonSafe = (str) => {
   if (!str || str === 'null' || str === '[]' || str === '{}') return null;
   try { return JSON.parse(str); } catch (e) { return null; }
 };
 
-const parseDateSafe = (dateStr) => {
-  if (!dateStr || dateStr === 'null' || dateStr === 'Invalid Date') return null;
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? null : d;
-};
+// ---------------- محصولات ----------------
+async function seedProducts() {
+  const results = [];
+  let count = 0;
+  console.log("🚀 در حال پردازش فایل products.csv ...");
+  
+  return new Promise((resolve, reject) => {
+    fs.createReadStream('products.csv')
+      .pipe(csv())
+      .on('data', (data) => {
+        results.push({
+          id: data.product_id,
+          persianTitle: data.persian_title,
+          brandName: data.brand_name !== 'null' ? data.brand_name : null,
+          categoryName: data.category_name !== 'null' ? data.category_name : null,
+          model: data.model !== 'null' ? data.model : null,
+          imageUrls: parseJsonSafe(data.image_urls),
+          specs: parseJsonSafe(data.specs),
+        });
+        if (results.length >= BATCH_SIZE) {
+          const batch = results.splice(0, BATCH_SIZE);
+          prisma.product.createMany({ data: batch, skipDuplicates: true }).catch(()=>{});
+          count += BATCH_SIZE;
+        }
+      })
+      .on('end', async () => {
+        if (results.length > 0) {
+          await prisma.product.createMany({ data: results, skipDuplicates: true }).catch(()=>{});
+          count += results.length;
+        }
+        console.log(`✅ ایمپورت محصولات تمام شد (${count} رکورد).`);
+        resolve();
+      })
+      .on('error', reject);
+  });
+}
 
+// ---------------- فروشگاه‌ها ----------------
+async function seedShops() {
+  const results = [];
+  let count = 0;
+  console.log("🚀 در حال پردازش فایل shops.csv ...");
+  
+  return new Promise((resolve, reject) => {
+    fs.createReadStream('shops.csv')
+      .pipe(csv())
+      .on('data', (data) => {
+        results.push({
+          id: data.shop_id,
+          name: data.name !== 'null' ? data.name : null,
+          address: data.address !== 'null' ? data.address : null,
+          categoryNames: parseJsonSafe(data.category_names),
+          contacts: parseJsonSafe(data.contacts),
+          instagram: data.instagram !== 'null' ? data.instagram : null,
+          lat: data.lat !== 'null' ? parseFloat(data.lat) : null,
+          lon: data.lon !== 'null' ? parseFloat(data.lon) : null,
+          locationLabel: data.location_label !== 'null' ? data.location_label : null,
+          paymentOptions: parseJsonSafe(data.payment_options),
+          supportsFastDelivery: data.supports_fast_delivery === 'true',
+          websiteUrl: data.website_url !== 'null' ? data.website_url : null,
+          weeklyHours: parseJsonSafe(data.weekly_hours),
+        });
+        if (results.length >= BATCH_SIZE) {
+          const batch = results.splice(0, BATCH_SIZE);
+          prisma.shop.createMany({ data: batch, skipDuplicates: true }).catch(()=>{});
+          count += BATCH_SIZE;
+        }
+      })
+      .on('end', async () => {
+        if (results.length > 0) {
+          await prisma.shop.createMany({ data: results, skipDuplicates: true }).catch(()=>{});
+          count += results.length;
+        }
+        console.log(`✅ ایمپورت فروشگاه‌ها تمام شد (${count} رکورد).`);
+        resolve();
+      })
+      .on('error', reject);
+  });
+}
+
+// ---------------- آفرها (این بخش حتماً باید بعد از محصولات و فروشگاه‌ها اجرا شود) ----------------
 async function seedOffers() {
   console.log("🔍 در حال خواندن لیست تمام محصولات و فروشگاه‌های معتبر از دیتابیس...");
   
-  // 👇 گرفتن لیست تمام IDهای موجود
+  // گرفتن لیست تمام IDهای موجود
   const allProducts = await prisma.product.findMany({ select: { id: true } });
   const allShops = await prisma.shop.findMany({ select: { id: true } });
 
@@ -40,7 +115,7 @@ async function seedOffers() {
       .on('data', (data) => {
         if (!data.offer_id || !data.product_id || !data.shop_id) return;
 
-        // 👇 فقط اگر محصول و فروشگاه در دیتابیس وجود داشت، اضافه کن
+        // فقط اگر محصول و فروشگاه در دیتابیس وجود داشت، اضافه کن
         if (validProductIds.has(data.product_id) && validShopIds.has(data.shop_id)) {
           results.push({
             id: data.offer_id,
@@ -50,43 +125,36 @@ async function seedOffers() {
             description: data.description && data.description !== 'null' ? data.description : null,
             sellerTitle: data.seller_title && data.seller_title !== 'null' ? data.seller_title : null,
             warranty: parseJsonSafe(data.warranty),
-            lastPriceChangedAt: parseDateSafe(data.last_price_changed_at),
+            lastPriceChangedAt: data.last_price_changed_at ? new Date(data.last_price_changed_at) : null,
           });
         } else {
           skipped++;
         }
+        
+        if (results.length >= BATCH_SIZE) {
+          const batch = results.splice(0, BATCH_SIZE);
+          prisma.offer.createMany({ data: batch, skipDuplicates: true }).catch(()=>{});
+          count += BATCH_SIZE;
+        }
       })
       .on('end', async () => {
-        console.log(`✅ فایل خوانده شد. ${results.length} آفر معتبر و ${skipped} آفر یتیم نادیده گرفته شد.`);
-        console.log("⏳ در حال درج در دیتابیس (این مرحله خیلی سریع‌تر خواهد بود)...");
-        
-        for (let i = 0; i < results.length; i += BATCH_SIZE) {
-          const batch = results.slice(i, i + BATCH_SIZE);
-          try {
-            await prisma.offer.createMany({ 
-              data: batch, 
-              skipDuplicates: true 
-            });
-            count += batch.length;
-            if (count % 20000 === 0) console.log(`⏳ ${count} رکورد درج شد...`);
-          } catch (error) {
-            console.error("⚠️ خطای درج بسته:", error.message);
-          }
+        if (results.length > 0) {
+          await prisma.offer.createMany({ data: results, skipDuplicates: true }).catch(()=>{});
+          count += results.length;
         }
-
-        console.log(`🎉 ایمپورت کامل شد! تعداد کل موفق: ${count}`);
-        await prisma.$disconnect();
+        console.log(`✅ ایمپورت آفرها تمام شد. موفق: ${count} | یتیم (رد شده): ${skipped}`);
         resolve();
       })
-      .on('error', (err) => {
-        console.error("❌ خطا در خواندن فایل:", err);
-        reject(err);
-      });
+      .on('error', reject);
   });
 }
 
 async function run() {
-  await seedOffers();
+  await seedProducts(); // ۱. اول محصولات
+  await seedShops();    // ۲. بعد فروشگاه‌ها
+  await seedOffers();   // ۳. در آخر آفرها
+  console.log("🎉 کل دیتابیس با موفقیت آماده شد!");
+  await prisma.$disconnect();
 }
 
 run();
