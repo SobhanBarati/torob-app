@@ -5,8 +5,6 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  connection_limit = 50
-  pool_timeout     = 30
 }
 
 model Product {
