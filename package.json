@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate --schema=./prisma/schema.prisma && next build",
-    "start": "next start",
-    "postinstall": "prisma generate --schema=./prisma/schema.prisma"
+    "start": "next start"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
