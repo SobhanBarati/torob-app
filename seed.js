@@ -3,14 +3,15 @@ const csv = require('csv-parser');
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 100; // کاهش سایز برای جلوگیری از پر شدن رم
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const parseJsonSafe = (str) => {
   if (!str || str === 'null' || str === '[]' || str === '{}') return null;
   try { return JSON.parse(str); } catch (e) { return null; }
 };
 
-// ---------------- محصولات ----------------
 async function seedProducts() {
   const results = [];
   let count = 0;
@@ -33,6 +34,7 @@ async function seedProducts() {
           const batch = results.splice(0, BATCH_SIZE);
           prisma.product.createMany({ data: batch, skipDuplicates: true }).catch(()=>{});
           count += BATCH_SIZE;
+          if (count % 5000 === 0) console.log(`⏳ ${count} محصول وارد شد...`);
         }
       })
       .on('end', async () => {
@@ -47,7 +49,6 @@ async function seedProducts() {
   });
 }
 
-// ---------------- فروشگاه‌ها ----------------
 async function seedShops() {
   const results = [];
   let count = 0;
@@ -76,6 +77,7 @@ async function seedShops() {
           const batch = results.splice(0, BATCH_SIZE);
           prisma.shop.createMany({ data: batch, skipDuplicates: true }).catch(()=>{});
           count += BATCH_SIZE;
+          if (count % 5000 === 0) console.log(`⏳ ${count} فروشگاه وارد شد...`);
         }
       })
       .on('end', async () => {
@@ -90,32 +92,26 @@ async function seedShops() {
   });
 }
 
-// ---------------- آفرها (این بخش حتماً باید بعد از محصولات و فروشگاه‌ها اجرا شود) ----------------
 async function seedOffers() {
-  console.log("🔍 در حال خواندن لیست تمام محصولات و فروشگاه‌های معتبر از دیتابیس...");
-  
-  // گرفتن لیست تمام IDهای موجود
+  console.log("🔍 در حال خواندن لیست محصولات و فروشگاه‌ها...");
   const allProducts = await prisma.product.findMany({ select: { id: true } });
   const allShops = await prisma.shop.findMany({ select: { id: true } });
 
   const validProductIds = new Set(allProducts.map(p => p.id));
   const validShopIds = new Set(allShops.map(s => s.id));
 
-  console.log(`✅ ${validProductIds.size} محصول و ${validShopIds.size} فروشگاه معتبر پیدا شد.`);
-
+  console.log(`✅ ${validProductIds.size} محصول و ${validShopIds.size} فروشگاه معتبر.`);
+  
   let count = 0;
   let skipped = 0;
   let results = [];
   
-  console.log("🚀 در حال پردازش فایل offers.csv ...");
-
   return new Promise((resolve, reject) => {
     fs.createReadStream('offers.csv')
       .pipe(csv())
       .on('data', (data) => {
         if (!data.offer_id || !data.product_id || !data.shop_id) return;
 
-        // فقط اگر محصول و فروشگاه در دیتابیس وجود داشت، اضافه کن
         if (validProductIds.has(data.product_id) && validShopIds.has(data.shop_id)) {
           results.push({
             id: data.offer_id,
@@ -135,6 +131,7 @@ async function seedOffers() {
           const batch = results.splice(0, BATCH_SIZE);
           prisma.offer.createMany({ data: batch, skipDuplicates: true }).catch(()=>{});
           count += BATCH_SIZE;
+          if (count % 10000 === 0) console.log(`⏳ ${count} آفر وارد شد...`);
         }
       })
       .on('end', async () => {
@@ -142,7 +139,7 @@ async function seedOffers() {
           await prisma.offer.createMany({ data: results, skipDuplicates: true }).catch(()=>{});
           count += results.length;
         }
-        console.log(`✅ ایمپورت آفرها تمام شد. موفق: ${count} | یتیم (رد شده): ${skipped}`);
+        console.log(`✅ ایمپورت آفرها تمام شد. موفق: ${count} | یتیم: ${skipped}`);
         resolve();
       })
       .on('error', reject);
@@ -150,9 +147,10 @@ async function seedOffers() {
 }
 
 async function run() {
-  await seedProducts(); // ۱. اول محصولات
-  await seedShops();    // ۲. بعد فروشگاه‌ها
-  await seedOffers();   // ۳. در آخر آفرها
+  // اگر دیتابیس خالیه، این بخش‌ها را اجرا کن
+  await seedProducts();
+  await seedShops();
+  await seedOffers();
   console.log("🎉 کل دیتابیس با موفقیت آماده شد!");
   await prisma.$disconnect();
 }
